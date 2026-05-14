@@ -1,10 +1,33 @@
 import { Link } from "react-router-dom"
 import { useCart } from "../context/CartContext.jsx"
 
+const safeText = (value, fallback = "") => {
+  if (!value) return fallback
+  if (typeof value === "string") return value
+  if (typeof value === "number") return String(value)
+
+  if (typeof value === "object") {
+    return value.name || value.title || value.label || value.value || fallback
+  }
+
+  return fallback
+}
+
 export default function ProductCard({ product }) {
   const { addToCart } = useCart()
 
-  const price = Number(product.listPrice || product.price || product.finalPrice || 0)
+  const productName = safeText(product.name, "Product")
+  const productDescription = safeText(
+    product.description,
+    "Custom Signavi product"
+  )
+
+  const price = Number(
+    product.listPrice ||
+    product.price ||
+    product.finalPrice ||
+    0
+  )
 
   return (
     <article className="product-card">
@@ -12,7 +35,7 @@ export default function ProductCard({ product }) {
         {product.image || product.imageUrl ? (
           <img
             src={product.image || product.imageUrl}
-            alt={product.name}
+            alt={productName}
             className="product-image"
           />
         ) : (
@@ -21,13 +44,19 @@ export default function ProductCard({ product }) {
       </Link>
 
       <div className="product-card-body">
-        <h3>{product.name}</h3>
-        <p>{product.description || "Custom Signavi product"}</p>
+        <h3>{productName}</h3>
+        <p>{productDescription}</p>
 
         <div className="product-card-footer">
           <strong>${price.toFixed(2)}</strong>
 
-          <button onClick={() => addToCart(product)}>
+          <button
+            type="button"
+            onClick={() => addToCart({
+              ...product,
+              name: productName
+            })}
+          >
             Add
           </button>
         </div>

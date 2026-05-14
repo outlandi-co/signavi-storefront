@@ -3,6 +3,18 @@ import { Link, useParams } from "react-router-dom"
 import api from "../services/api.js"
 import { useCart } from "../context/CartContext.jsx"
 
+const safeText = (value, fallback = "") => {
+  if (!value) return fallback
+  if (typeof value === "string") return value
+  if (typeof value === "number") return String(value)
+
+  if (typeof value === "object") {
+    return value.name || value.title || value.label || value.value || fallback
+  }
+
+  return fallback
+}
+
 export default function ProductDetail() {
   const { id } = useParams()
   const { addToCart } = useCart()
@@ -30,13 +42,35 @@ export default function ProductDetail() {
     return <section className="page">Loading product...</section>
   }
 
-  const price = Number(product.listPrice || product.price || product.finalPrice || 0)
+  const productName = safeText(product.name, "Product")
+  const productDescription = safeText(
+    product.description,
+    "Custom Signavi product."
+  )
+
+  const price = Number(
+    product.listPrice ||
+    product.price ||
+    product.finalPrice ||
+    0
+  )
+
+  const colors = Array.isArray(product.colors)
+    ? product.colors.map(color => safeText(color)).filter(Boolean)
+    : []
+
+  const sizes = Array.isArray(product.sizes)
+    ? product.sizes.map(size => safeText(size)).filter(Boolean)
+    : []
 
   return (
     <section className="product-detail">
       <div className="detail-image">
         {product.image || product.imageUrl ? (
-          <img src={product.image || product.imageUrl} alt={product.name} />
+          <img
+            src={product.image || product.imageUrl}
+            alt={productName}
+          />
         ) : (
           <div className="image-placeholder large">Signavi</div>
         )}
@@ -45,12 +79,12 @@ export default function ProductDetail() {
       <div className="detail-content">
         <Link to="/store" className="back-link">← Back to Store</Link>
 
-        <h1>{product.name}</h1>
-        <p>{product.description || "Custom Signavi product."}</p>
+        <h1>{productName}</h1>
+        <p>{productDescription}</p>
 
         <h2>${price.toFixed(2)}</h2>
 
-        {product.colors?.length > 0 && (
+        {colors.length > 0 && (
           <label>
             Color
             <select
@@ -63,14 +97,14 @@ export default function ProductDetail() {
               }}
             >
               <option value="">Select color</option>
-              {product.colors.map(color => (
+              {colors.map(color => (
                 <option key={color} value={color}>{color}</option>
               ))}
             </select>
           </label>
         )}
 
-        {product.sizes?.length > 0 && (
+        {sizes.length > 0 && (
           <label>
             Size
             <select
@@ -83,7 +117,7 @@ export default function ProductDetail() {
               }}
             >
               <option value="">Select size</option>
-              {product.sizes.map(size => (
+              {sizes.map(size => (
                 <option key={size} value={size}>{size}</option>
               ))}
             </select>
@@ -92,7 +126,13 @@ export default function ProductDetail() {
 
         <button
           className="primary-button"
-          onClick={() => addToCart(product, selectedVariant)}
+          onClick={() => addToCart(
+            {
+              ...product,
+              name: productName
+            },
+            selectedVariant
+          )}
         >
           Add to Cart
         </button>

@@ -2,6 +2,18 @@ import { useEffect, useMemo, useState } from "react"
 import api from "../services/api.js"
 import ProductCard from "../components/ProductCard.jsx"
 
+const safeText = (value, fallback = "") => {
+  if (!value) return fallback
+  if (typeof value === "string") return value
+  if (typeof value === "number") return String(value)
+
+  if (typeof value === "object") {
+    return value.name || value.title || value.label || value.value || fallback
+  }
+
+  return fallback
+}
+
 export default function Store() {
   const [products, setProducts] = useState([])
   const [query, setQuery] = useState("")
@@ -18,7 +30,6 @@ export default function Store() {
         })
 
         const data = res.data?.data || res.data || []
-
         setProducts(Array.isArray(data) ? data : [])
       } catch (err) {
         console.error("STORE PRODUCTS ERROR:", err)
@@ -35,9 +46,9 @@ export default function Store() {
 
     return products.filter(product => {
       return (
-        product.name?.toLowerCase().includes(text) ||
-        product.category?.toLowerCase().includes(text) ||
-        product.description?.toLowerCase().includes(text)
+        safeText(product.name).toLowerCase().includes(text) ||
+        safeText(product.category).toLowerCase().includes(text) ||
+        safeText(product.description).toLowerCase().includes(text)
       )
     })
   }, [products, query])
