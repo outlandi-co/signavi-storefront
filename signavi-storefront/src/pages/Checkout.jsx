@@ -20,10 +20,13 @@ export default function Checkout() {
     }
   })
 
+  const [rates, setRates] = useState([])
+  const [selectedRate, setSelectedRate] = useState(null)
+  const [loadingRates, setLoadingRates] = useState(false)
   const [loading, setLoading] = useState(false)
 
   const tax = subtotal * 0.0825
-  const shipping = 0
+  const shipping = selectedRate ? Number(selectedRate.amount || 0) : 0
   const total = subtotal + tax + shipping
 
   const updateField = (field, value) => {
@@ -41,12 +44,63 @@ export default function Checkout() {
         [field]: value
       }
     }))
+
+    setRates([])
+    setSelectedRate(null)
+  }
+
+  const getShippingRates = async () => {
+    const { customerName, address } = customerInfo
+
+    if (
+      !customerName ||
+      !address.street ||
+      !address.city ||
+      !address.state ||
+      !address.zip
+    ) {
+      alert("Please enter your full shipping address first.")
+      return
+    }
+
+    setLoadingRates(true)
+
+    try {
+      const res = await api.post("/shipping/get-rates", {
+        address_to: {
+          name: customerName,
+          street1: address.street,
+          city: address.city,
+          state: address.state,
+          zip: address.zip,
+          country: address.country || "US"
+        }
+      })
+
+      const returnedRates = res.data?.rates || []
+
+      setRates(returnedRates)
+
+      if (returnedRates.length > 0) {
+        setSelectedRate(returnedRates[0])
+      }
+    } catch (err) {
+      console.error("SHIPPING RATE ERROR:", err)
+      alert(err.response?.data?.message || "Failed to get shipping rates")
+    } finally {
+      setLoadingRates(false)
+    }
   }
 
   const submitOrder = async (event) => {
     event.preventDefault()
 
     if (cartItems.length === 0) return
+
+    if (!selectedRate) {
+      alert("Please choose a shipping option before continuing.")
+      return
+    }
 
     setLoading(true)
 
@@ -56,6 +110,12 @@ export default function Checkout() {
         source: "store",
         salesChannel: "signavi_store",
         orderType: "store",
+        shippingCost: shipping,
+        shippingRateId: selectedRate.object_id,
+        shippingProvider: selectedRate.provider,
+        shippingService: selectedRate.servicelevel?.name || selectedRate.servicelevel?.token,
+        shippingDays: selectedRate.estimated_days,
+        shippingRate: selectedRate,
         items: cartItems.map(item => ({
           productId: item.productId,
           name: item.name,
@@ -104,10 +164,15 @@ export default function Checkout() {
                   type="number"
                   min="1"
                   value={item.quantity}
-                  onChange={(event) => updateQuantity(item.key, Number(event.target.value))}
+                  onChange={(event) =>
+                    updateQuantity(item.key, Number(event.target.value))
+                  }
                 />
 
-                <button onClick={() => removeFromCart(item.key)}>
+                <button
+                  type="button"
+                  onClick={() => removeFromCart(item.key)}
+                >
                   Remove
                 </button>
               </div>
@@ -118,6 +183,7 @@ export default function Checkout() {
         <div className="totals">
           <p>Subtotal: ${subtotal.toFixed(2)}</p>
           <p>Tax: ${tax.toFixed(2)}</p>
+          <p>Shipping: ${shipping.toFixed(2)}</p>
           <h3>Total: ${total.toFixed(2)}</h3>
         </div>
       </div>
@@ -147,33 +213,77 @@ export default function Checkout() {
         />
 
         <input
+          required
           placeholder="Street"
           value={customerInfo.address.street}
           onChange={(event) => updateAddress("street", event.target.value)}
         />
 
         <input
+          required
           placeholder="City"
           value={customerInfo.address.city}
           onChange={(event) => updateAddress("city", event.target.value)}
         />
 
         <input
+          required
           placeholder="State"
           value={customerInfo.address.state}
           onChange={(event) => updateAddress("state", event.target.value)}
         />
 
         <input
+          required
           placeholder="Zip"
           value={customerInfo.address.zip}
           onChange={(event) => updateAddress("zip", event.target.value)}
         />
 
         <button
+          type="button"
+          className="primary-button"
+          onClick={getShippingRates}
+          disabled={loadingRates || cartItems.length === 0}
+        >
+          {loadingRates ? "Getting Shipping..." : "Get Shipping Options"}
+        </button>
+
+        {rates.length > 0 && (
+          <div className="shipping-options">
+            <h3>Shipping Options</h3>
+
+            {rates.map(rate => (
+              <label
+                key={rate.object_id}
+                className="shipping-rate"
+              >
+                <input
+                  type="radio"
+                  name="shippingRate"
+                  checked={selectedRate?.object_id === rate.object_id}
+                  onChange={() => setSelectedRate(rate)}
+                />
+
+                <span>
+                  <strong>
+                    {rate.provider} {rate.servicelevel?.name}
+                  </strong>
+                  <br />
+                  ${Number(rate.amount || 0).toFixed(2)}
+                  {rate.estimated_days
+                    ? ` • ${rate.estimated_days} day(s)`
+                    : ""}
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+
+        <button
           className="primary-button"
           type="submit"
-          disabled={loading || cartItems.length === 0}
+          disabled={loading || cartItems.length === 0 || !selectedRate}
         >
           {loading ? "Creating Order..." : "Continue to Payment"}
         </button>
