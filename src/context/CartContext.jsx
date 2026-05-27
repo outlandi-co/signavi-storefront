@@ -1,76 +1,255 @@
-import { createContext, useContext, useMemo, useState } from "react"
+import { createContext, useEffect, useMemo, useState } from "react"
 
-const CartContext = createContext(null)
+const CartContext = createContext()
+
+const TAX_RATE = 0.0825
+
+const safeNumber = (value, fallback = 0) => {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : fallback
+}
+
+const getProductId = (product = {}) => {
+  return product.productId || product._id || product.id || ""
+}
+
+const getProductType = (product = {}) => {
+  return product.productType || product.type || "physical"
+}
+
+const getCartItemPrice = (item = {}) => {
+  return safeNumber(
+    item.price ||
+      item.selectedVariant?.price ||
+      item.basePrice ||
+      item.listPrice ||
+      0
+  )
+}
+
+const normalizeVariant = (variant = null) => {
+  if (!variant) return null
+
+  return {
+    color: variant.color || "",
+    size: variant.size || "",
+    price: safeNumber(variant.price),
+  }
+}
+
+const isSameCartItem = (item = {}, product = {}) => {
+  const productId = getProductId(product)
+  const productType = getProductType(product)
+
+  if (item.productId !== productId) return false
+
+  if (productType === "digital" || productType === "service") {
+    return item.productType === productType
+  }
+
+  const variant = product.selectedVariant || null
+
+  return (
+    item.selectedVariant?.color === variant?.color &&
+    item.selectedVariant?.size === variant?.size
+  )
+}
 
 export function CartProvider({ children }) {
-  const [cartItems, setCartItems] = useState([])
+  const [cart, setCart] = useState(() => {
+    try {
+      const savedCart = JSON.parse(localStorage.getItem("cart") || "[]")
+      return Array.isArray(savedCart) ? savedCart : []
+    } catch {
+      return []
+    }
+  })
 
-  const addToCart = (product, options = {}) => {
-    setCartItems(prev => {
-      const key = `${product.id}-${options.size || ""}-${options.color || ""}`
-      const existing = prev.find(item => item.key === key)
+  useEffect(() => {
+    localStorage.setItem("cart", JSON.stringify(cart))
+  }, [cart])
+
+  const addToCart = (product = {}) => {
+    const productId = getProductId(product)
+    const productType = getProductType(product)
+    const variant = normalizeVariant(product.selectedVariant || null)
+
+    if (!productId) {
+      console.warn("❌ Missing product ID:", product)
+      return false
+    }
+
+    if (productType === "physical" && (!variant?.color || !variant?.size)) {
+      console.warn("❌ Missing variant:", product)
+      return false
+    }
+
+    const price = safeNumber(
+      product.price ||
+        variant?.price ||
+        product.basePrice ||
+        product.listPrice ||
+        0
+    )
+
+    if (price <= 0) {
+      console.warn("❌ Invalid price:", product)
+      return false
+    }
+
+    setCart((prev) => {
+      const existing = prev.find((item) => isSameCartItem(item, product))
 
       if (existing) {
-        return prev.map(item =>
-          item.key === key
-            ? { ...item, quantity: item.quantity + 1 }
-            : item
-        )
+        return prev.map((item) => {
+          if (!isSameCartItem(item, product)) return item
+
+          if (productType === "digital") {
+            return {
+              ...item,
+              quantity: 1,
+              price,
+              image: product.image || item.image,
+              digitalProduct:
+                product.digitalProduct || item.digitalProduct || null,
+            }
+          }
+
+          return {
+            ...item,
+            quantity: safeNumber(item.quantity, 1) + 1,
+            price,
+            image: product.image || item.image,
+          }
+        })
       }
 
       return [
         ...prev,
         {
-          key,
-          id: product.id,
-          name: product.name,
-          price: product.price,
-          image: product.image,
-          size: options.size || product.sizes?.[0] || "One Size",
-          color: options.color || product.colors?.[0] || "Default",
-          quantity: 1
-        }
+          productId,
+          name: product.name || "Untitled Product",
+          image: product.image || "",
+          productType,
+          price,
+          selectedVariant:
+            productType === "physical"
+              ? {
+                  color: variant.color,
+                  size: variant.size,
+                  price,
+                }
+              : null,
+          digitalProduct:
+            productType === "digital"
+              ? product.digitalProduct || null
+              : null,
+          quantity: 1,
+        },
       ]
     })
+
+    return true
   }
 
-  const removeFromCart = key => {
-    setCartItems(prev => prev.filter(item => item.key !== key))
-  }
+  const updateQuantity = (productId, variantOrType, delta) => {
+    setCart((prev) =>
+      prev
+        .map((item) => {
+          if (item.productId !== productId) return item
 
-  const updateQuantity = (key, quantity) => {
-    const nextQuantity = Math.max(1, Number(quantity || 1))
-    setCartItems(prev =>
-      prev.map(item =>
-        item.key === key ? { ...item, quantity: nextQuantity } : item
-      )
+          const itemType = item.productType || "physical"
+
+          const isMatch =
+            itemType === "digital" || itemType === "service"
+              ? itemType === variantOrType
+              : item.selectedVariant?.color === variantOrType?.color &&
+                item.selectedVariant?.size === variantOrType?.size
+
+          if (!isMatch) return item
+
+          if (itemType === "digital" && delta > 0) {
+            return {
+              ...item,
+              quantity: 1,
+            }
+          }
+
+          const newQty = safeNumber(item.quantity, 1) + delta
+
+          if (newQty <= 0) return null
+
+          return {
+            ...item,
+            quantity: newQty,
+          }
+        })
+        .filter(Boolean)
     )
   }
 
-  const clearCart = () => setCartItems([])
+  const removeFromCart = (productId, variantOrType) => {
+    setCart((prev) =>
+      prev.filter((item) => {
+        if (item.productId !== productId) return true
 
-  const totals = useMemo(() => {
-    const subtotal = cartItems.reduce(
-      (sum, item) => sum + item.price * item.quantity,
+        const itemType = item.productType || "physical"
+
+        if (itemType === "digital" || itemType === "service") {
+          return itemType !== variantOrType
+        }
+
+        return !(
+          item.selectedVariant?.color === variantOrType?.color &&
+          item.selectedVariant?.size === variantOrType?.size
+        )
+      })
+    )
+  }
+
+  const clearCart = () => {
+    setCart([])
+  }
+
+  const subtotal = useMemo(() => {
+    return cart.reduce((sum, item) => {
+      const price = getCartItemPrice(item)
+      const quantity = safeNumber(item.quantity, 1)
+
+      return sum + price * quantity
+    }, 0)
+  }, [cart])
+
+  const tax = useMemo(() => {
+    return subtotal * TAX_RATE
+  }, [subtotal])
+
+  const shipping = 0
+
+  const total = useMemo(() => {
+    return subtotal + tax + shipping
+  }, [subtotal, tax])
+
+  const cartCount = useMemo(() => {
+    return cart.reduce(
+      (sum, item) => sum + safeNumber(item.quantity, 1),
       0
     )
-    const tax = subtotal * 0.0825
-    const shipping = subtotal > 75 || subtotal === 0 ? 0 : 7.99
-    const total = subtotal + tax + shipping
-    const count = cartItems.reduce((sum, item) => sum + item.quantity, 0)
-
-    return { subtotal, tax, shipping, total, count }
-  }, [cartItems])
+  }, [cart])
 
   return (
     <CartContext.Provider
       value={{
-        cartItems,
+        cart,
         addToCart,
-        removeFromCart,
         updateQuantity,
+        removeFromCart,
         clearCart,
-        totals
+        subtotal,
+        tax,
+        shipping,
+        total,
+        cartCount,
       }}
     >
       {children}
@@ -78,10 +257,4 @@ export function CartProvider({ children }) {
   )
 }
 
-export function useCart() {
-  const context = useContext(CartContext)
-  if (!context) {
-    throw new Error("useCart must be used inside CartProvider")
-  }
-  return context
-}
+export default CartContext
