@@ -100,12 +100,7 @@ export default function Gallery() {
           </p>
 
           <div className="mt-8 flex flex-wrap justify-center gap-4">
-            <Link
-              to="/quote"
-              className="rounded-full bg-gradient-to-r from-cyan-400 to-blue-600 px-6 py-3 font-bold text-white shadow-lg shadow-cyan-500/20 transition hover:scale-105"
-            >
-              Request Similar Project
-            </Link>
+            
 
             <Link
               to="/services"
@@ -190,12 +185,7 @@ export default function Gallery() {
                       View
                     </button>
 
-                    <Link
-                      to={`/quote?service=${encodeURIComponent(item.category)}`}
-                      className="rounded-full bg-cyan-500 px-4 py-2 font-bold text-black transition hover:bg-cyan-400"
-                    >
-                      Quote
-                    </Link>
+                   
                   </div>
                 </div>
 
@@ -208,12 +198,7 @@ export default function Gallery() {
                     {item.description}
                   </p>
 
-                  <Link
-                    to={`/quote?service=${encodeURIComponent(item.category)}`}
-                    className="mt-5 inline-flex font-semibold text-cyan-300 transition hover:text-cyan-200"
-                  >
-                    Start this type of project →
-                  </Link>
+                  
                 </div>
               </article>
             ))}

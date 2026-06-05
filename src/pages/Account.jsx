@@ -247,10 +247,7 @@ export default function Account() {
                   onClick={() => navigate("/dashboard/support")}
                 />
 
-                <ActionButton
-                  label="Start Custom Quote"
-                  onClick={() => navigate("/custom-quote")}
-                />
+               
               </div>
             </section>
           </aside>

@@ -4,7 +4,6 @@ import api from "../../services/api"
 
 const statusStyles = {
   pending: "border-slate-500/30 bg-slate-500/10 text-slate-300",
-  quotes: "border-cyan-500/30 bg-cyan-500/10 text-cyan-300",
   payment_required: "border-yellow-500/30 bg-yellow-500/10 text-yellow-300",
   paid: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
   ready_for_production: "border-blue-500/30 bg-blue-500/10 text-blue-300",
@@ -87,7 +86,6 @@ export default function CustomerDashboard() {
   const navigate = useNavigate()
 
   const [orders, setOrders] = useState([])
-  const [quotes, setQuotes] = useState([])
   const [supportTickets, setSupportTickets] = useState([])
   const [customerEmail, setCustomerEmail] = useState("")
   const [customerUser, setCustomerUser] = useState(null)
@@ -120,17 +118,13 @@ export default function CustomerDashboard() {
 
         if (!email) {
           setOrders([])
-          setQuotes([])
           setSupportTickets([])
           setError("Please log in again to view your dashboard.")
           return
         }
 
-        const [ordersRes, quotesRes, supportRes] = await Promise.all([
+        const [ordersRes, supportRes] = await Promise.all([
           api.get(`/orders/my-orders?email=${encodeURIComponent(email)}`),
-          api
-            .get(`/quotes?email=${encodeURIComponent(email)}`)
-            .catch(() => ({ data: { data: [] } })),
           api
             .get(`/support?email=${encodeURIComponent(email)}`)
             .catch(() => ({ data: { data: [] } }))
@@ -142,12 +136,6 @@ export default function CustomerDashboard() {
           normalizeList(ordersRes.data, [
             "orders",
             "myOrders"
-          ])
-        )
-
-        setQuotes(
-          normalizeList(quotesRes.data, [
-            "quotes"
           ])
         )
 
@@ -163,7 +151,6 @@ export default function CustomerDashboard() {
         console.error("❌ Customer dashboard load error:", err)
 
         setOrders([])
-        setQuotes([])
         setSupportTickets([])
         setError("Could not load your dashboard right now.")
       } finally {
@@ -181,8 +168,11 @@ export default function CustomerDashboard() {
   }, [])
 
   const recentOrders = useMemo(() => orders.slice(0, 5), [orders])
-  const recentQuotes = useMemo(() => quotes.slice(0, 4), [quotes])
-  const recentTickets = useMemo(() => supportTickets.slice(0, 4), [supportTickets])
+
+  const recentTickets = useMemo(
+    () => supportTickets.slice(0, 4),
+    [supportTickets]
+  )
 
   const activeOrders = useMemo(() => {
     return orders.filter((order) => {
@@ -208,8 +198,6 @@ export default function CustomerDashboard() {
       )
     }, 0)
   }, [orders])
-
-
 
   return (
     <main className="min-h-screen bg-[#020617] px-6 py-16 text-white">
@@ -244,16 +232,6 @@ export default function CustomerDashboard() {
               >
                 Continue Shopping
               </button>
-
-              <button
-                type="button"
-                onClick={() => navigate("/custom-quote")}
-                className="rounded-full border border-slate-700 px-5 py-3 font-bold text-white transition hover:border-cyan-400 hover:text-cyan-300"
-              >
-                Request Quote
-              </button>
-
-              
             </div>
           </div>
         </div>
@@ -288,9 +266,9 @@ export default function CustomerDashboard() {
               />
 
               <DashboardCard
-                label="Quotes"
-                value={quotes.length}
-                note="Submitted quote requests"
+                label="Support Tickets"
+                value={supportTickets.length}
+                note="Open and past support requests"
                 accent="text-purple-300"
               />
 
@@ -325,10 +303,10 @@ export default function CustomerDashboard() {
               />
 
               <QuickLinkCard
-                title="Invoices"
+                title="Receipts"
                 icon="🧾"
-                note="Quotes, invoices, and receipts"
-                onClick={() => navigate("/customer/invoices")}
+                note="Orders, invoices, and receipts"
+                onClick={() => navigate("/receipts")}
               />
             </div>
 
@@ -411,94 +389,44 @@ export default function CustomerDashboard() {
                 )}
               </section>
 
-              <div className="space-y-6">
-                <section className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 shadow-xl shadow-black/20">
-                  <div className="mb-5">
-                    <h2 className="text-2xl font-bold">
-                      My Quotes
-                    </h2>
+              <section className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 shadow-xl shadow-black/20">
+                <div className="mb-5">
+                  <h2 className="text-2xl font-bold">
+                    Support Tickets
+                  </h2>
 
-                    <p className="text-sm text-slate-500">
-                      Your recent custom quote requests.
-                    </p>
+                  <p className="text-sm text-slate-500">
+                    Questions, updates, and support requests.
+                  </p>
+                </div>
+
+                {recentTickets.length === 0 ? (
+                  <EmptyState
+                    title="No Tickets"
+                    message="Need help? Start a support request."
+                  />
+                ) : (
+                  <div className="space-y-3">
+                    {recentTickets.map((ticket) => (
+                      <MiniItem
+                        key={ticket._id}
+                        title={ticket.subject || "Support Ticket"}
+                        meta={formatStatus(ticket.status || "open")}
+                        value={ticket.priority || "Normal"}
+                        onClick={() => navigate(`/support/${ticket._id}`)}
+                      />
+                    ))}
                   </div>
+                )}
 
-                  {recentQuotes.length === 0 ? (
-                    <EmptyState
-                      title="No Quotes Yet"
-                      message="Submit a custom quote request to get started."
-                    />
-                  ) : (
-                    <div className="space-y-3">
-                      {recentQuotes.map((quote) => (
-                        <MiniItem
-                          key={quote._id}
-                          title={
-                            quote.serviceLabel ||
-                            quote.printType ||
-                            quote.projectName ||
-                            "Quote Request"
-                          }
-                          meta={formatStatus(
-                            quote.approvalStatus ||
-                              quote.status ||
-                              "pending"
-                          )}
-                          value={money(
-                            quote.finalPrice ||
-                              quote.price ||
-                              0
-                          )}
-                          onClick={() =>
-                            navigate(`/customer/quotes/${quote._id}`)
-                          }
-                        />
-                      ))}
-                    </div>
-                  )}
-                </section>
-
-                <section className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 shadow-xl shadow-black/20">
-                  <div className="mb-5">
-                    <h2 className="text-2xl font-bold">
-                      Support Tickets
-                    </h2>
-
-                    <p className="text-sm text-slate-500">
-                      Questions, updates, and support requests.
-                    </p>
-                  </div>
-
-                  {recentTickets.length === 0 ? (
-                    <EmptyState
-                      title="No Tickets"
-                      message="Need help? Start a support request."
-                    />
-                  ) : (
-                    <div className="space-y-3">
-                      {recentTickets.map((ticket) => (
-                        <MiniItem
-                          key={ticket._id}
-                          title={ticket.subject || "Support Ticket"}
-                          meta={formatStatus(ticket.status || "open")}
-                          value={ticket.priority || "Normal"}
-                          onClick={() =>
-                            navigate(`/support/${ticket._id}`)
-                          }
-                        />
-                      ))}
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => navigate("/support")}
-                    className="mt-5 w-full rounded-xl bg-cyan-500 px-4 py-3 font-bold text-black transition hover:bg-cyan-400"
-                  >
-                    Open Support
-                  </button>
-                </section>
-              </div>
+                <button
+                  type="button"
+                  onClick={() => navigate("/support")}
+                  className="mt-5 w-full rounded-xl bg-cyan-500 px-4 py-3 font-bold text-black transition hover:bg-cyan-400"
+                >
+                  Open Support
+                </button>
+              </section>
             </div>
           </>
         )}
@@ -656,17 +584,6 @@ function OrderCard({
           className="rounded-full bg-blue-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-blue-500"
         >
           Track
-        </button>
-
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation()
-            navigate(`/invoice/${order._id}`)
-          }}
-          className="rounded-full bg-purple-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-purple-500"
-        >
-          Invoice
         </button>
 
         {paidStatuses.includes(status) && (

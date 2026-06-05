@@ -462,7 +462,6 @@ export default function ProductDetail() {
             items={[
               "Review selected size and color before checkout",
               "Availability may vary by product variant",
-              "Custom requests may require a separate quote",
               "Bulk pricing may be available"
             ]}
           />
@@ -488,12 +487,7 @@ export default function ProductDetail() {
             custom design? Request a quote and we’ll review the details.
           </p>
 
-          <Link
-            to={`/quote?service=${encodeURIComponent(category)}`}
-            className="inline-flex rounded-full bg-gradient-to-r from-cyan-400 to-blue-600 px-8 py-4 font-bold text-white shadow-lg shadow-cyan-500/20 transition hover:scale-105"
-          >
-            Request Custom Quote
-          </Link>
+          
         </section>
       </section>
     </main>

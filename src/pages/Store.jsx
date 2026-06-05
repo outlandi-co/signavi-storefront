@@ -854,10 +854,10 @@ export default function Store() {
                       </button>
 
                       <Link
-                        to={`/quote?service=${encodeURIComponent(productName)}`}
+                        
                         className="rounded-xl border border-cyan-400/40 px-4 py-3 text-center font-bold text-cyan-300 transition hover:bg-cyan-400 hover:text-black"
                       >
-                        Custom Quote
+                        
                       </Link>
                     </div>
 

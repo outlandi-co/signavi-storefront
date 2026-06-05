@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import toast from "react-hot-toast"
-import { useCartContext } from "../hooks/useCartContext"
 import api from "../services/api"
+import { useCartContext } from "../hooks/useCartContext"
 
 const TAX_RATE = 0.0825
 
@@ -13,37 +13,14 @@ const money = (value = 0) => {
   })
 }
 
-const getCustomerEmail = () => {
-  let email = ""
-
-  try {
-    const customerUser = JSON.parse(
-      localStorage.getItem("customerUser") || "null"
-    )
-
-    email =
-      customerUser?.email ||
-      customerUser?.user?.email ||
-      customerUser?.data?.email ||
-      ""
-  } catch {
-    console.warn("⚠️ Failed to parse customerUser")
-  }
-
-  if (!email) {
-    email = localStorage.getItem("customerEmail") || ""
-  }
-
-  return String(email || "guest@signavi.com")
-    .trim()
-    .toLowerCase()
-}
-
 const getPrice = (item = {}) => {
   return Number(
-    item?.selectedVariant?.price ??
-      item?.variant?.price ??
+    item?.salePrice ??
+      item?.finalPrice ??
+      item?.unitPrice ??
       item?.price ??
+      item?.selectedVariant?.price ??
+      item?.variant?.price ??
       item?.basePrice ??
       0
   )
@@ -59,17 +36,72 @@ const getProductId = (item = {}) => {
   )
 }
 
+const getStoredCustomerUser = () => {
+  try {
+    return JSON.parse(
+      localStorage.getItem("customerUser") || "null"
+    )
+  } catch {
+    return null
+  }
+}
+
+const getInitialCustomerInfo = () => {
+  const customerUser = getStoredCustomerUser()
+
+  return {
+    customerName:
+      customerUser?.name ||
+      customerUser?.customerName ||
+      "",
+    email:
+      customerUser?.email ||
+      localStorage.getItem("customerEmail") ||
+      "",
+    phone: customerUser?.phone || "",
+    street: customerUser?.address?.street || "",
+    city: customerUser?.address?.city || "",
+    state: customerUser?.address?.state || "",
+    zip: customerUser?.address?.zip || "",
+    country: customerUser?.address?.country || "US"
+  }
+}
+
+const normalizeRate = (rate = {}) => {
+  return {
+    id: rate.object_id || rate.id || rate.rateId || "",
+    provider: rate.provider || rate.carrier || "Carrier",
+    servicelevel:
+      rate.servicelevel?.name ||
+      rate.service ||
+      rate.serviceName ||
+      rate.name ||
+      "Shipping",
+    amount: Number(rate.amount || rate.price || rate.rate || 0),
+    currency: rate.currency || "USD",
+    estimatedDays:
+      rate.estimated_days ||
+      rate.estimatedDays ||
+      rate.delivery_days ||
+      null,
+    raw: rate
+  }
+}
+
 export default function Cart() {
   const navigate = useNavigate()
 
   const {
     cart,
-    total,
     removeFromCart,
     clearCart
   } = useCartContext()
 
-  const [loading, setLoading] = useState(false)
+  const [customerInfo, setCustomerInfo] = useState(getInitialCustomerInfo)
+  const [shippingRates, setShippingRates] = useState([])
+  const [selectedRate, setSelectedRate] = useState(null)
+  const [loadingRates, setLoadingRates] = useState(false)
+  const [checkingOut, setCheckingOut] = useState(false)
 
   const totals = useMemo(() => {
     const subtotal = cart.reduce((sum, item) => {
@@ -77,14 +109,93 @@ export default function Cart() {
     }, 0)
 
     const tax = subtotal * TAX_RATE
-    const finalPrice = subtotal + tax
+    const shipping = Number(selectedRate?.amount || 0)
+    const finalPrice = subtotal + tax + shipping
 
     return {
       subtotal,
       tax,
+      shipping,
       finalPrice
     }
-  }, [cart])
+  }, [cart, selectedRate])
+
+  const handleChange = (field, value) => {
+    setCustomerInfo((prev) => ({
+      ...prev,
+      [field]: value
+    }))
+
+    if (["street", "city", "state", "zip", "country"].includes(field)) {
+      setShippingRates([])
+      setSelectedRate(null)
+    }
+  }
+
+  const validateCustomerInfo = () => {
+    if (!customerInfo.customerName.trim()) return "Customer name is required"
+    if (!customerInfo.email.trim()) return "Email is required"
+    if (!customerInfo.street.trim()) return "Street address is required"
+    if (!customerInfo.city.trim()) return "City is required"
+    if (!customerInfo.state.trim()) return "State is required"
+    if (!customerInfo.zip.trim()) return "ZIP is required"
+
+    return ""
+  }
+
+  const getShippingRates = async () => {
+    const error = validateCustomerInfo()
+
+    if (error) {
+      toast.error(error)
+      return
+    }
+
+    try {
+      setLoadingRates(true)
+      setShippingRates([])
+      setSelectedRate(null)
+
+      const res = await api.post("/shipping/get-rates", {
+        address_to: {
+          name: customerInfo.customerName.trim() || "Customer",
+          street1: customerInfo.street.trim(),
+          city: customerInfo.city.trim(),
+          state: customerInfo.state.trim(),
+          zip: customerInfo.zip.trim(),
+          country: customerInfo.country.trim() || "US"
+        }
+      })
+
+      const rawRates =
+        res.data?.rates ||
+        res.data?.data?.rates ||
+        res.data?.data ||
+        []
+
+      const normalizedRates = Array.isArray(rawRates)
+        ? rawRates.map(normalizeRate).filter((rate) => rate.amount > 0)
+        : []
+
+      if (!normalizedRates.length) {
+        toast.error("No shipping rates found")
+        return
+      }
+
+      setShippingRates(normalizedRates)
+      setSelectedRate(normalizedRates[0])
+      toast.success("Shipping rates loaded")
+    } catch (err) {
+      console.error("❌ SHIPPING RATE ERROR:", err.response?.data || err)
+
+      toast.error(
+        err.response?.data?.message ||
+          "Failed to get shipping rates"
+      )
+    } finally {
+      setLoadingRates(false)
+    }
+  }
 
   const handleCheckout = async () => {
     if (!cart.length) {
@@ -92,66 +203,108 @@ export default function Cart() {
       return
     }
 
+    const error = validateCustomerInfo()
+
+    if (error) {
+      toast.error(error)
+      return
+    }
+
+    if (!selectedRate) {
+      toast.error("Please get and select a shipping rate first")
+      return
+    }
+
     try {
-      setLoading(true)
+      setCheckingOut(true)
 
-      const email = getCustomerEmail()
+      const customerName = customerInfo.customerName.trim()
+      const email = customerInfo.email.trim().toLowerCase()
+      const phone = customerInfo.phone.trim()
 
-      const items = cart.map((item) => ({
-        productId: getProductId(item),
-        name: item.name || "Product",
-        quantity: Number(item.quantity || 1),
-        price: getPrice(item),
-        variant:
-          item.selectedVariant ||
-          item.variant ||
-          null,
-        image:
-          item.image ||
-          item.imageUrl ||
-          item.selectedVariant?.image ||
-          ""
-      }))
+      localStorage.setItem("customerEmail", email)
 
-      const payload = {
+      const orderRes = await api.post("/orders", {
+        customerName,
         email,
-        customerName:
-          JSON.parse(
-            localStorage.getItem("customerUser") || "null"
-          )?.name || "Guest Customer",
-        items,
+        phone,
+
+        address: {
+          street: customerInfo.street.trim(),
+          city: customerInfo.city.trim(),
+          state: customerInfo.state.trim(),
+          zip: customerInfo.zip.trim(),
+          country: customerInfo.country.trim() || "US"
+        },
+
+        items: cart,
+
+        shipping: totals.shipping,
+        shippingCost: totals.shipping,
+        shippingTotal: totals.shipping,
+        deliveryFee: totals.shipping,
+
+        shippingRate: selectedRate,
+        shippingRateId:
+          selectedRate?.id ||
+          selectedRate?.object_id ||
+          selectedRate?.raw?.object_id ||
+          "",
+
+        shippingProvider:
+          selectedRate?.provider ||
+          "",
+
+        shippingService:
+          selectedRate?.servicelevel ||
+          selectedRate?.servicelevel?.name ||
+          "",
+
         subtotal: totals.subtotal,
         tax: totals.tax,
         finalPrice: totals.finalPrice,
-        source: "store",
+
+        source: "cart_page",
         status: "payment_required"
-      }
+      })
 
-      const res = await api.post("/orders", payload)
-
-      const order =
-        res.data?.data ||
-        res.data?.order ||
-        res.data
-
-      const orderId = order?._id
+      const orderId =
+        orderRes.data?.data?._id ||
+        orderRes.data?.order?._id ||
+        orderRes.data?._id
 
       if (!orderId) {
-        throw new Error("Order ID not returned")
+        throw new Error("Missing order ID")
       }
 
-      toast.success("Order created")
+      localStorage.setItem("lastOrderId", orderId)
 
-      navigate(`/client-checkout/${orderId}`)
+      const squareRes = await api.post(`/square/create-payment/${orderId}`)
+
+      const paymentUrl =
+        squareRes.data?.paymentUrl ||
+        squareRes.data?.url ||
+        squareRes.data?.checkoutUrl ||
+        squareRes.data?.squarePaymentUrl ||
+        squareRes.data?.data?.paymentUrl ||
+        squareRes.data?.data?.url ||
+        squareRes.data?.data?.checkoutUrl ||
+        squareRes.data?.data?.squarePaymentUrl
+
+      if (!paymentUrl) {
+        throw new Error("Missing Square payment URL")
+      }
+
+      window.location.assign(paymentUrl)
     } catch (err) {
-      console.error("❌ CART CHECKOUT ERROR:", err.response?.data || err)
+      console.error("❌ CHECKOUT ERROR:", err.response?.data || err)
 
       toast.error(
         err.response?.data?.message ||
           "Checkout failed"
       )
-    } finally {
-      setLoading(false)
+
+      setCheckingOut(false)
     }
   }
 
@@ -200,7 +353,7 @@ export default function Cart() {
           </h1>
 
           <p className="mt-3 text-slate-400">
-            Review your items before secure checkout.
+            Review your items, choose a live shipping rate, then continue to secure payment.
           </p>
         </div>
 
@@ -256,20 +409,9 @@ export default function Cart() {
                       </div>
 
                       <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                        <DetailBox
-                          label="Price"
-                          value={money(price)}
-                        />
-
-                        <DetailBox
-                          label="Qty"
-                          value={quantity}
-                        />
-
-                        <DetailBox
-                          label="Line Total"
-                          value={money(lineTotal)}
-                        />
+                        <DetailBox label="Price" value={money(price)} />
+                        <DetailBox label="Qty" value={quantity} />
+                        <DetailBox label="Line Total" value={money(lineTotal)} />
                       </div>
 
                       {removeFromCart && (
@@ -299,19 +441,116 @@ export default function Cart() {
               Order Summary
             </h2>
 
-            <SummaryRow
-              label="Subtotal"
-              value={money(totals.subtotal || total)}
-            />
+            <div className="mb-6 rounded-2xl border border-slate-800 bg-[#020617] p-4">
+              <h3 className="mb-4 text-lg font-bold">
+                Customer & Shipping
+              </h3>
 
-            <SummaryRow
-              label="Tax"
-              value={money(totals.tax)}
-            />
+              <Input
+                value={customerInfo.customerName}
+                onChange={(value) => handleChange("customerName", value)}
+                placeholder="Full Name *"
+              />
 
+              <Input
+                value={customerInfo.email}
+                onChange={(value) => handleChange("email", value)}
+                placeholder="Email *"
+                type="email"
+              />
+
+              <Input
+                value={customerInfo.phone}
+                onChange={(value) => handleChange("phone", value)}
+                placeholder="Phone"
+                type="tel"
+              />
+
+              <Input
+                value={customerInfo.street}
+                onChange={(value) => handleChange("street", value)}
+                placeholder="Street Address *"
+              />
+
+              <Input
+                value={customerInfo.city}
+                onChange={(value) => handleChange("city", value)}
+                placeholder="City *"
+              />
+
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  value={customerInfo.state}
+                  onChange={(value) => handleChange("state", value)}
+                  placeholder="State *"
+                />
+
+                <Input
+                  value={customerInfo.zip}
+                  onChange={(value) => handleChange("zip", value)}
+                  placeholder="ZIP *"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={getShippingRates}
+                disabled={loadingRates}
+                className="mt-3 w-full rounded-2xl bg-cyan-500 px-5 py-3 font-black text-black transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:bg-slate-600"
+              >
+                {loadingRates ? "Getting Rates..." : "Get Shipping Rates"}
+              </button>
+
+              {shippingRates.length > 0 && (
+                <div className="mt-4 space-y-3">
+                  <h4 className="font-bold">
+                    Select Shipping
+                  </h4>
+
+                  {shippingRates.map((rate) => (
+                    <button
+                      type="button"
+                      key={`${rate.id}-${rate.provider}-${rate.servicelevel}-${rate.amount}`}
+                      onClick={() => setSelectedRate(rate)}
+                      className={
+                        selectedRate?.id === rate.id
+                          ? "w-full rounded-2xl border border-cyan-400 bg-cyan-500/10 p-3 text-left"
+                          : "w-full rounded-2xl border border-slate-700 bg-slate-900 p-3 text-left hover:border-cyan-400"
+                      }
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="font-bold">
+                            {rate.provider}
+                          </p>
+
+                          <p className="text-sm text-slate-400">
+                            {rate.servicelevel}
+                            {rate.estimatedDays
+                              ? ` • ${rate.estimatedDays} day(s)`
+                              : ""}
+                          </p>
+                        </div>
+
+                        <strong className="text-cyan-300">
+                          {money(rate.amount)}
+                        </strong>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <SummaryRow label="Subtotal" value={money(totals.subtotal)} />
+            <SummaryRow label="Estimated Tax" value={money(totals.tax)} />
             <SummaryRow
               label="Shipping"
-              value="Calculated later"
+              value={
+                selectedRate
+                  ? money(totals.shipping)
+                  : "Select rate"
+              }
             />
 
             <SummaryRow
@@ -323,12 +562,10 @@ export default function Cart() {
             <button
               type="button"
               onClick={handleCheckout}
-              disabled={loading}
-              className="mt-6 w-full rounded-2xl bg-cyan-500 px-5 py-4 font-black text-black transition hover:bg-cyan-400 disabled:opacity-60"
+              disabled={checkingOut}
+              className="mt-6 w-full rounded-2xl bg-emerald-500 px-5 py-4 font-black text-black transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-600"
             >
-              {loading
-                ? "Creating Order..."
-                : "Checkout"}
+              {checkingOut ? "Redirecting..." : "Continue to Secure Payment"}
             </button>
 
             {clearCart && (
@@ -342,12 +579,29 @@ export default function Cart() {
             )}
 
             <p className="mt-4 text-center text-sm text-slate-500">
-              Secure payment will be completed through Square.
+              Live shipping rates are calculated before Square payment.
             </p>
           </aside>
         </div>
       </section>
     </main>
+  )
+}
+
+function Input({
+  value,
+  onChange,
+  placeholder,
+  type = "text"
+}) {
+  return (
+    <input
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      placeholder={placeholder}
+      type={type}
+      className="mb-3 w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-400"
+    />
   )
 }
 

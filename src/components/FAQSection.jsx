@@ -30,11 +30,6 @@ const faqs = [
       "Production timelines vary depending on the service, quantity, artwork approval, and material availability. Rush services may be available for some projects."
   },
   {
-    question: "Do I need artwork ready before requesting a quote?",
-    answer:
-      "No. If you already have artwork, great. If not, we can discuss design options and help create graphics that fit your project."
-  },
-  {
     question: "Do you offer shipping nationwide?",
     answer:
       "Many products can be shipped throughout the United States. Shipping costs and delivery times vary depending on size, weight, and destination."
@@ -102,12 +97,7 @@ export default function FAQSection() {
             photography, signage, branding, or promotional product needs.
           </p>
 
-          <a
-            href="/quote"
-            className="inline-flex rounded-full bg-gradient-to-r from-cyan-400 to-blue-600 px-8 py-4 font-bold text-white shadow-lg shadow-cyan-500/20 transition hover:scale-105"
-          >
-            Request A Quote
-          </a>
+          
         </div>
       </div>
     </section>
