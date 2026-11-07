@@ -33,6 +33,59 @@ const getPaymentUrl = (payload = {}) => {
   )
 }
 
+const getVerifiedSquarePaymentUrl = (payload, expectedOrderId) => {
+  if (
+    payload?.success !== true ||
+    payload?.paymentCreated !== true ||
+    payload?.paymentCompleted !== false ||
+    payload?.retryAuthorized !== false
+  ) {
+    throw new Error("Verified payment-link response required")
+  }
+
+  const returnedOrderId = String(payload?.orderId || "").toLowerCase()
+  const requestedOrderId = String(expectedOrderId || "").toLowerCase()
+
+  if (
+    !/^[0-9a-f]{24}$/.test(returnedOrderId) ||
+    returnedOrderId !== requestedOrderId
+  ) {
+    throw new Error("Checkout order identity mismatch")
+  }
+
+  const rawUrl = payload?.paymentUrl
+
+  if (typeof rawUrl !== "string" || !rawUrl.trim()) {
+    throw new Error("Square payment URL missing")
+  }
+
+  let parsed
+
+  try {
+    parsed = new URL(rawUrl)
+  } catch {
+    throw new Error("Invalid Square payment URL")
+  }
+
+  const approvedHosts = new Set([
+    "square.link",
+    "checkout.square.site"
+  ])
+
+  if (
+    parsed.protocol !== "https:" ||
+    !approvedHosts.has(parsed.hostname) ||
+    parsed.username ||
+    parsed.password ||
+    parsed.port ||
+    parsed.hash ||
+    parsed.pathname.length <= 1
+  ) {
+    throw new Error("Unapproved Square payment URL")
+  }
+
+  return parsed.href
+}
 const getOrderId = (payload = {}, fallbackId = "") => {
   return (
     payload?.orderId ||
@@ -213,9 +266,8 @@ export default function ClientCheckout() {
         payload
       )
 
-      console.log("🧾 CHECKOUT RESPONSE:", res.data)
 
-      const paymentUrl = getPaymentUrl(res.data)
+      const paymentUrl = getVerifiedSquarePaymentUrl(res.data, id)
       const orderId = getOrderId(res.data, id)
 
       if (!paymentUrl) {
@@ -238,9 +290,9 @@ export default function ClientCheckout() {
       )
 
       toast.success("Redirecting to secure payment")
-      window.location.href = paymentUrl
+      window.location.assign(paymentUrl)
     } catch (err) {
-      console.error("❌ CHECKOUT SAVE ERROR:", err.response?.data || err)
+      console.error("Checkout request failed:", err?.response?.status ?? "network-error")
 
       setError(
         err.response?.data?.message ||

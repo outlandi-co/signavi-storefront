@@ -42,6 +42,7 @@ import ResetPassword from "./pages/ResetPassword"
 
 import ClientOrder from "./pages/ClientOrder"
 import ClientCheckout from "./pages/ClientCheckout"
+import BuyNowCheckout from "./pages/BuyNowCheckout"
 import CheckoutRedirect from "./pages/CheckoutRedirect"
 
 import Account from "./pages/Account"
@@ -295,7 +296,8 @@ function AppContent() {
           </Route>
         </Route>
 
-        <Route path="/client-checkout/:id" element={<ClientCheckout />} />
+        <Route path="/client-checkout/buy-now" element={<BuyNowCheckout />} />
+<Route path="/client-checkout/:id" element={<ClientCheckout />} />
         <Route path="/checkout/:id" element={<CheckoutRedirect />} />
         <Route path="/client-order/:id" element={<ClientOrder />} />
         <Route path="/success/:id" element={<Success />} />

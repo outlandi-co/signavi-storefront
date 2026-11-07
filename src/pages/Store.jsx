@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom"
 import api from "../services/api"
 import { useCartContext } from "../context/useCartContext"
 import toast from "react-hot-toast"
+import { prepareBuyNowHandoff } from "../utils/prepareBuyNowHandoff.mjs"
 
 const safeText = (value, fallback = "") => {
   if (value === null || value === undefined || value === "") return fallback
@@ -247,59 +248,34 @@ export default function Store() {
     }
   }
 
-  const handleBuyNow = async ({
-    product,
-    variant,
-    mainImage,
-    price,
-    productType
-  }) => {
+  const handleBuyNow = ({ product, variant }) => {
     try {
-      const productId = product._id
+      const productId = product?._id
       const qty = quantity[productId] || 1
-      const subtotal = price * qty
-      const tax = subtotal * 0.0825
 
-      const res = await api.post("/orders", {
-        email:
-          JSON.parse(localStorage.getItem("customerUser") || "null")?.email ||
-          "guest@signavi.com",
-        customerName:
-          JSON.parse(localStorage.getItem("customerUser") || "null")?.name ||
-          "Guest Customer",
-        source: "store",
-        status: "payment_required",
-        items: [
-          {
-            productId,
-            name: safeText(product.name, "Product"),
-            quantity: qty,
-            price,
-            image: mainImage,
-            productType,
-            variant: variant ? { ...variant, price } : null,
-            artworkFileName: artworkFiles[productId]?.name || "",
-            personalization: personalization[productId] || ""
-          }
-        ],
-        subtotal,
-        tax,
-        finalPrice: subtotal + tax
+      const handoff = prepareBuyNowHandoff({
+        productId,
+        quantity: qty,
+        selectedVariant: variant || null,
+        artworkFileName: artworkFiles[productId]?.name || "",
+        personalization: personalization[productId] || ""
       })
 
-      const order = res.data?.data || res.data?.order || res.data
+      if (!handoff.ready) {
+        throw new Error("Buy Now selection could not be prepared.")
+      }
 
-      if (!order?._id) throw new Error("No order ID returned")
-
-      localStorage.setItem("lastOrderId", order._id)
       addRecent(product)
-      navigate(`/client-checkout/${order._id}`)
-    } catch (err) {
-      console.error("❌ BUY NOW ERROR:", err.response?.data || err)
-      toast.error(err.response?.data?.message || "Buy now failed")
+      navigate(handoff.path)
+    } catch (error) {
+      // Do not log order responses or customer information.
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Buy Now checkout is unavailable."
+      )
     }
   }
-
   const handleQuickStock = async (product, newStock) => {
     try {
       await api.put(`/products/${product._id}`, {
