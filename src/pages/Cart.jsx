@@ -2,7 +2,13 @@ import { useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import toast from "react-hot-toast"
 import api from "../services/api"
-import { useCartContext } from "../hooks/useCartContext"
+import { saveGuestCheckoutToken } from "../utils/guestCheckoutSession.mjs"
+import {
+  beginStorefrontCreationAttempt,
+  getStorefrontCreationAttempt,
+  markStorefrontCreationAttempt
+} from "../utils/storefrontCreationAttempt.mjs"
+import { useCartContext } from "../context/useCartContext"
 
 const TAX_RATE = 0.0825
 
@@ -215,6 +221,27 @@ export default function Cart() {
       return
     }
 
+    if (checkingOut) return
+
+    // Block another submission after an existing purchase attempt.
+    try {
+      if (getStorefrontCreationAttempt("cart")) {
+        toast.error(
+          "An earlier purchase attempt requires review. " +
+          "Do not create another order."
+        )
+        return
+      }
+    } catch {
+      toast.error(
+        "Checkout recovery state requires review. " +
+        "Do not retry this order."
+      )
+      return
+    }
+
+    let orderRequestStarted = false
+
     try {
       setCheckingOut(true)
 
@@ -223,6 +250,11 @@ export default function Cart() {
       const phone = customerInfo.phone.trim()
 
       localStorage.setItem("customerEmail", email)
+
+      const attemptHeaders =
+        beginStorefrontCreationAttempt("cart")
+
+      orderRequestStarted = true
 
       const orderRes = await api.post("/orders", {
         customerName,
@@ -266,9 +298,22 @@ export default function Cart() {
 
         source: "cart_page",
         status: "payment_required"
+      }, {
+        headers: attemptHeaders
       })
 
-      const orderId =
+          const checkoutToken = orderRes.data?.checkoutToken
+
+      if (
+        typeof checkoutToken !== "string" ||
+        !checkoutToken.trim()
+      ) {
+        throw new Error(
+          "Guest checkout authorization was not returned. " +
+          "Do not create another order."
+        )
+      }
+  const orderId =
         orderRes.data?.data?._id ||
         orderRes.data?.order?._id ||
         orderRes.data?._id
@@ -277,6 +322,24 @@ export default function Cart() {
         throw new Error("Missing order ID")
       }
 
+      if (
+        !markStorefrontCreationAttempt(
+          "cart",
+          "created"
+        )
+      ) {
+        throw new Error(
+          "Order recovery state could not be saved. " +
+          "Do not create another order."
+        )
+      }
+
+      if (!saveGuestCheckoutToken(orderId, checkoutToken)) {
+        throw new Error(
+          "Guest checkout session could not be saved. " +
+          "Do not create another order."
+        )
+      }
       localStorage.setItem("lastOrderId", orderId)
 
       const squareRes = await api.post(`/square/create-payment/${orderId}`)
@@ -297,7 +360,17 @@ export default function Cart() {
 
       window.location.assign(paymentUrl)
     } catch (err) {
-      console.error("❌ CHECKOUT ERROR:", err.response?.data || err)
+      if (orderRequestStarted) {
+        try {
+          markStorefrontCreationAttempt(
+            "cart",
+            "uncertain"
+          )
+        } catch {
+          // Preserve the existing attempt identity.
+        }
+      }
+      console.error("Cart checkout failed:", err?.response?.status ?? "network-error")
 
       toast.error(
         err.response?.data?.message ||

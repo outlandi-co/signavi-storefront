@@ -59,7 +59,6 @@ api.interceptors.request.use((config) => {
     }
   }
 
-  console.log("🔥 REQUEST:", config.baseURL + config.url, config.data)
 
   return config
 })
@@ -70,7 +69,6 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => {
     if (stopLoading) stopLoading()
-    console.log("✅ RESPONSE:", res.config.url, res.data)
     return res
   },
 
@@ -81,13 +79,17 @@ api.interceptors.response.use(
     const status = err?.response?.status
     const url = err?.config?.url || ""
 
-    console.error(
-      "❌ API ERROR:",
-      status,
-      err?.config?.baseURL + url
-    )
+    console.error("API request failed:", status)
 
     const originalRequest = err.config || {}
+
+    const requestPath = url
+      .split("?")[0]
+      .replace(/\/+$/, "")
+
+    const isOrderCreation =
+      String(originalRequest.method || "").toLowerCase() === "post" &&
+      requestPath === "/orders"
 
     const safeRoutes = [
       "/auth/login",
@@ -98,17 +100,21 @@ api.interceptors.response.use(
 
     const isSafeRoute = safeRoutes.some((r) => url.includes(r))
 
-    if (status === 401 && !isSafeRoute && !originalRequest._retry) {
+    if (
+      status === 401 &&
+      !isSafeRoute &&
+      !isOrderCreation &&
+      !originalRequest._retry
+    ) {
       originalRequest._retry = true
 
       try {
         return await api(originalRequest)
       } catch (retryErr) {
-        console.error("❌ Retry failed:", retryErr)
       }
     }
 
-    if (status === 401 && !isSafeRoute) {
+    if (status === 401 && !isSafeRoute && !isOrderCreation) {
       const isCheckout = url.includes("/square")
 
       const wasAdmin =
