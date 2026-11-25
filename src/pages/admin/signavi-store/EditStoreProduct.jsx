@@ -36,7 +36,7 @@ export default function EditStoreProduct() {
 
     const loadProduct = async () => {
       try {
-        const res = await api.get(`/products/${id}`)
+        const res = await api.get(`/products/admin/${id}`, { params: { storefront: "signavi_store" } })
         const product = res.data?.data || res.data
 
         if (ignore) return
