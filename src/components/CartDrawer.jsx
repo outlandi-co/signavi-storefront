@@ -162,8 +162,43 @@ export default function CartDrawer({ isOpen, onClose, onCheckout }) {
       setShippingRates([])
       setSelectedShippingRate(null)
 
-     const res = await api.post("/shipping/get-rates", {
-  address_to: {
+     const shippingItems = cart
+        .filter((item) =>
+          (item.productType || "physical") === "physical"
+        )
+        .map((item) => ({
+          productId: String(
+            item.productId ||
+            item.product?._id ||
+            item._id ||
+            item.id ||
+            ""
+          ),
+          quantity: Number(item.quantity ?? 1)
+        }));
+
+      if (
+        shippingItems.length < 1 ||
+        shippingItems.length > 50 ||
+        shippingItems.some(({ productId, quantity }) =>
+          !/^[a-f0-9]{24}$/i.test(productId) ||
+          !Number.isInteger(quantity) ||
+          quantity < 1 ||
+          quantity > 200
+        ) ||
+        shippingItems.reduce(
+          (sum, item) => sum + item.quantity,
+          0
+        ) > 200
+      ) {
+        setFormError("Cart contains invalid physical shipping items.");
+        return;
+      }
+
+      const res = await api.post("/shipping/get-rates", {
+        storefront: "signavi_store",
+        items: shippingItems,
+        address_to: {
     name: customerInfo.customerName.trim() || "Customer",
     street1: customerInfo.street.trim(),
     city: customerInfo.city.trim(),
